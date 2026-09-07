@@ -25,10 +25,16 @@ if (not isManInTheMiddle):
     sock = connect_to_peer(BobIP, BOB_PORT)
     print("Alice connected to Bob")
     send_message(sock, b"Hello Bob from Alice")
+    print("Message sent to Bob")
+    message = receive_message(sock)
+    print("Message from Bob:", message.decode())
     pass
 else:
     # sending through MITM
     sock = connect_to_peer(MalloryIP, MALLORY_PORT)
     print("Alice connected to  Mallory")
     send_message(sock, b"Hello Bob from Alice")
+    print("Message sent to Bob")
+    message = receive_message(sock)
+    print("Message from Bob:", message.decode())
     pass

@@ -14,10 +14,23 @@ print(f"Mallory ready to interfere on TCP port {MALLORY_PORT}...")
 
 sockAlice, peerAlice = accept_peer(MALLORY_PORT)
 print("Mallory: connected to", peerAlice)
-message = receive_message(sockAlice)
+# print("Mallory: connected to BOB")
 
-sockBob = connect_to_peer(BobIP, BOB_PORT)
+# Alice -> Mallory -> Bob
+message = receive_message(sockAlice)
+print("Alice to Bob:", message.decode())
+
 message = message + b" Hello There..."
 
+sockBob= connect_to_peer(BobIP, BOB_PORT)
 send_message(sockBob, message)
+print("Message Modified")
 
+# Bob -> Mallory -> Alice
+message = receive_message(sockBob)
+print("Bob to Alice:", message.decode())
+
+message = message + b" Hello There..."
+print("Message Modified")
+
+send_message(sockAlice, message)
