@@ -9,9 +9,10 @@ sock, peer = accept_peer(BOB_PORT)
 print("Bob: connected to ", peer)
 
 message = receive_message(sock);
-print("Message from Alice:", message.decode())
+msgString = message.decode()
+print("MSG:", msgString)
 
-send_message(sock, b"Hello Alice from Bob")
-print("Message sent to Alice")
+send_message(sock, b"Received secret " + msgString[-4:].encode())
+print("LOG: Message sent to ", peer)
 
 sock.close()

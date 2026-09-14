@@ -7,6 +7,15 @@ MALLORY_PORT = 5005
 
 argLen = len(sys.argv)
 
+def SendAndReceiveMessage(ip, port):
+    sock = connect_to_peer(ip, port)
+    print("LOG: Alice connected to ", ip, ":", port)
+    send_message(sock, b"The secret is 1234")
+    print("LOG: Message sent to ", ip, ":", port)
+    message = receive_message(sock)
+    print("MSG: ", message.decode())
+    return 0
+
 if (argLen < 2):
     print("Usage: python Alice.py <Receiver-IP> [MITM-IP]")
     raise SystemExit(1)
@@ -22,19 +31,8 @@ else:
 
 if (not isManInTheMiddle):
     # sending without MITM
-    sock = connect_to_peer(BobIP, BOB_PORT)
-    print("Alice connected to Bob")
-    send_message(sock, b"Hello Bob from Alice")
-    print("Message sent to Bob")
-    message = receive_message(sock)
-    print("Message from Bob:", message.decode())
-    pass
+    SendAndReceiveMessage(BobIP, BOB_PORT)
 else:
     # sending through MITM
-    sock = connect_to_peer(MalloryIP, MALLORY_PORT)
-    print("Alice connected to  Mallory")
-    send_message(sock, b"Hello Bob from Alice")
-    print("Message sent to Bob")
-    message = receive_message(sock)
-    print("Message from Bob:", message.decode())
+    SendAndReceiveMessage(MalloryIP, MALLORY_PORT)
     pass

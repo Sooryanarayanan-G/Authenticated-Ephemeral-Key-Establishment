@@ -10,27 +10,27 @@ if len(sys.argv) != 3:
 
 BobIP = sys.argv[2]
 
-print(f"Mallory ready to interfere on TCP port {MALLORY_PORT}...")
+print(f"LOG: Mallory ready to intercept on TCP port {MALLORY_PORT}...")
 
 sockAlice, peerAlice = accept_peer(MALLORY_PORT)
-print("Mallory: connected to", peerAlice)
+print("LOG: Mallory connected to", peerAlice)
 # print("Mallory: connected to BOB")
 
 # Alice -> Mallory -> Bob
 message = receive_message(sockAlice)
-print("Alice to Bob:", message.decode())
+print("MSG: ", message.decode())
 
-message = message + b" Hello There..."
+message = message + b"89"
 
-sockBob= connect_to_peer(BobIP, BOB_PORT)
+sockBob = connect_to_peer(BobIP, BOB_PORT)
 send_message(sockBob, message)
-print("Message Modified")
+print("LOG: Message Modified and passed on")
 
 # Bob -> Mallory -> Alice
 message = receive_message(sockBob)
-print("Bob to Alice:", message.decode())
+print("MSG: ", message.decode())
 
-message = message + b" Hello There..."
-print("Message Modified")
+message = message + b"00"
+print("Message Modified and passed on")
 
 send_message(sockAlice, message)
