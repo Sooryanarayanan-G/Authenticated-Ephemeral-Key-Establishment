@@ -2,12 +2,16 @@ from transport import connect_to_peer, send_message, receive_message
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
 from cryptography.hazmat.primitives import serialization
 import secrets
+import hashlib
 import json
 import sys
 
 isManInTheMiddle = False
 BOB_PORT = 5000
 MALLORY_PORT = 5005
+PROTOCOL_ID = "CS6530-A2-v1"
+ALICE_ID = "CS26D400"
+BOB_ID = "CS26M016"
 
 argLen = len(sys.argv)
 
@@ -54,9 +58,24 @@ def PerformAuthEphHandshake(sock):
     # Necessary checks for M2, check sizes of each field, Alice SID and PK
     if (len(bytes.fromhex(M2["Bob_SID"])) != 16 or
         M2["Alice_SID"] != M1["Alice_SID"] or
-        M2["Alice_Ephemeral_PK"] != M1["Alice_Ephemeral_PK"]): return 1
+        len(bytes.fromhex(M2["Bob_Ephemeral_PK"])) != 32): return 1
 
-    print(M2)
+    print(M2)   # Debug line
+
+    # Construct transcript
+    # Transcript = Protocol_ID || Alice_ID || Bob_ID || Alice_SID || Bob_SID || Alice_Ephemeral_PK || Bob_Ephemeral_PK 
+    transcript = (
+        PROTOCOL_ID.encode() + 
+        ALICE_ID.encode() + 
+        BOB_ID.encode() +
+        aliceSID +
+        bytes.fromhex(M2["Bob_SID"]) +
+        aliceEphemeralPK +
+        bytes.fromhex(M2["Bob_Ephemeral_PK"])
+    )
+
+    # Hash the transcript
+    transcriptHash = hashlib.sha256(transcript).digest()
     return 0
 
 if (argLen < 2):
