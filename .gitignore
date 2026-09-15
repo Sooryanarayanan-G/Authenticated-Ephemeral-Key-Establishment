@@ -44,3 +44,5 @@ Thumbs.db
 
 # Project runtime files
 *.bin
+!ed25519-private.bin
+!ed25519-public.bin
