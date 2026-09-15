@@ -23,7 +23,7 @@ def PerformAuthEphHandshake(sock):
     # Get 32B raw public key for Bob
     bobEphemeralPK = bobEphPublicKey.public_bytes(encoding=serialization.Encoding.Raw,
                                                   format=serialization.PublicFormat.Raw)
-    if (len(bobEphemeralPK) != 32): return 1  # Check the length
+    if (len(bobEphemeralPK) != 32): return {}  # Check the length
 
     # Generate 16B SID for Bob
     bobSID = secrets.token_bytes(16)
@@ -35,7 +35,7 @@ def PerformAuthEphHandshake(sock):
 
     # Necessary checks for M1, check sizes of each field
     if (len(bytes.fromhex(M1["Alice_SID"])) != 16 or
-        len(bytes.fromhex(M1["Alice_Ephemeral_PK"])) != 32): return 1
+        len(bytes.fromhex(M1["Alice_Ephemeral_PK"])) != 32): return {}
 
     print("M1 ",  M1)   # Debug line
 
@@ -81,12 +81,12 @@ def PerformAuthEphHandshake(sock):
 
     # Necessary checks for M3, verify the signature using alice long term public key
     aliceSignature = bytes.fromhex(M3["Alice_signature"])
-    if len(aliceSignature) != 64: return 1
+    if len(aliceSignature) != 64: return {}
 
     try:
         aliceLTPublicKey.verify(aliceSignature, transcriptHash)
     except InvalidSignature:
-        return 1
+        return {}
 
     print("M3 ", M3)   # Debug line
 
@@ -108,7 +108,16 @@ def PerformAuthEphHandshake(sock):
     sharedSecret = ComputeSharedSecret(bobEphPrivateKey, bytes.fromhex(M1["Alice_Ephemeral_PK"]))
     print(sharedSecret) # Debug line
 
-    return 0
+    #  derive K_Alice_to_Bob and K_Bob_to_Alice using HKDF-SHA-256 with Transcript_Hash as salt and the specified info strings.
+    kAliceToBob, kBobToAlice = DeriveTwoDirectionalTrafficKeys(ikm=sharedSecret, salt=transcriptHash)
+
+    # Return all the data needed for later part of the project, which involves AES
+    return {
+        "K_Alice_to_Bob": kAliceToBob,
+        "K_Bob_to_Alice": kBobToAlice,
+        "Alice_SID": bytes.fromhex(M1["Alice_SID"]),
+        "Bob_SID": bobSID
+    }
 
 
 print(f"Bob: waiting on TCP port {BOB_PORT}...")
@@ -117,8 +126,11 @@ sock, peer = accept_peer(BOB_PORT)
 
 print("Bob: connected to ", peer)
 
-status = PerformAuthEphHandshake(sock)
-if (status): print("Authenticated Handshake Failure")
+keyDict = PerformAuthEphHandshake(sock)
+if (CheckKeyDict(keyDict) == False): 
+    print("Authenticated Handshake Failure")
+else:
+    print("LOG: Established shared secret and derived two directional keys")
 # message = receive_message(sock);
 # msgString = message.decode()
 # print("MSG:", msgString)

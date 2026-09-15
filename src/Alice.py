@@ -40,7 +40,7 @@ def PerformAuthEphHandshake(sock):
     # Get 32B raw public key for Alice
     aliceEphemeralPK = aliceEphPublicKey.public_bytes(encoding=serialization.Encoding.Raw,
                                                       format=serialization.PublicFormat.Raw)
-    if (len(aliceEphemeralPK) != 32): return 1  # Check the length
+    if (len(aliceEphemeralPK) != 32): return {}  # Check the length
 
     # Generate 16B SID for Alice
     aliceSID = secrets.token_bytes(16)
@@ -62,7 +62,7 @@ def PerformAuthEphHandshake(sock):
     # Necessary checks for M2, check sizes of each field, Alice SID and PK
     if (len(bytes.fromhex(M2["Bob_SID"])) != 16 or
         M2["Alice_SID"] != M1["Alice_SID"] or
-        len(bytes.fromhex(M2["Bob_Ephemeral_PK"])) != 32): return 1
+        len(bytes.fromhex(M2["Bob_Ephemeral_PK"])) != 32): return {}
 
     print("M2 ", M2)   # Debug line
 
@@ -110,12 +110,12 @@ def PerformAuthEphHandshake(sock):
 
     # Necessary checks for M4, verify the signature using bob long term public key
     bobSignature = bytes.fromhex(M4["Bob_signature"])
-    if len(bobSignature) != 64: return 1
+    if len(bobSignature) != 64: return {}
 
     try:
         bobLTPublicKey.verify(bobSignature, transcriptHash)
     except InvalidSignature:
-        return 1
+        return {}
 
     print("M4 ", M4)   # Debug line
 
@@ -123,7 +123,17 @@ def PerformAuthEphHandshake(sock):
 
     sharedSecret = ComputeSharedSecret(aliceEphPrivateKey, bytes.fromhex(M2["Bob_Ephemeral_PK"]))
     print(sharedSecret) # Debug line
-    return 0
+
+    #  derive K_Alice_to_Bob and K_Bob_to_Alice using HKDF-SHA-256 with Transcript_Hash as salt and the specified info strings.
+    kAliceToBob, kBobToAlice = DeriveTwoDirectionalTrafficKeys(ikm=sharedSecret, salt=transcriptHash)
+
+    # Return all the data needed for later part of the project, which involves AES
+    return {
+        "K_Alice_to_Bob": kAliceToBob,
+        "K_Bob_to_Alice": kBobToAlice,
+        "Alice_SID": aliceSID,
+        "Bob_SID": bytes.fromhex(M2["Bob_SID"])
+    }
 
 if (argLen < 2):
     print("Usage: python Alice.py <Receiver-IP> [MITM-IP]")
@@ -142,8 +152,11 @@ if (not isManInTheMiddle):
     # sending without MITM
     # SendAndReceiveMessage(BobIP, BOB_PORT)
     sock = ConnectWrapper(BobIP, BOB_PORT)
-    status = PerformAuthEphHandshake(sock)
-    if (status): print("Authenticated Handshake Failure")
+    keyDict = PerformAuthEphHandshake(sock)
+    if (CheckKeyDict(keyDict) == False): 
+        print("Authenticated Handshake Failure")
+    else:
+        print("LOG: Established shared secret and derived two directional keys")
 
 else:
     # sending through MITM
