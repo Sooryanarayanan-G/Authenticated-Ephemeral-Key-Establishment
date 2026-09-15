@@ -105,6 +105,9 @@ def PerformAuthEphHandshake(sock):
 
     print("LOG: Authenticated Handshake complete")
 
+    sharedSecret = ComputeSharedSecret(bobEphPrivateKey, bytes.fromhex(M1["Alice_Ephemeral_PK"]))
+    print(sharedSecret) # Debug line
+
     return 0
 
 

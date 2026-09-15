@@ -1,3 +1,5 @@
+from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
+from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PublicKey
 from pathlib import Path
 
 # Get the current directory as reference
@@ -23,3 +25,12 @@ def LoadLTKeyPeer(peerName):
         peerPublicKey = f.read()
 
     return peerPublicKey
+
+# Computes the shared secret
+def ComputeSharedSecret(selfEphPrivateKey, peerEphPublicKeyRaw):
+    # Convert raw key to key object
+    peerEphPublicKey = X25519PublicKey.from_public_bytes(peerEphPublicKeyRaw)
+
+    # Compute the shared secret
+    sharedSecret = selfEphPrivateKey.exchange(peerEphPublicKey)
+    return sharedSecret
