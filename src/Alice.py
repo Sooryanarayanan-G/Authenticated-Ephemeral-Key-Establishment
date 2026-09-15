@@ -1,6 +1,8 @@
 from transport import connect_to_peer, send_message, receive_message
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives import serialization
+from Load_keys import * 
 import secrets
 import hashlib
 import json
@@ -76,6 +78,18 @@ def PerformAuthEphHandshake(sock):
 
     # Hash the transcript
     transcriptHash = hashlib.sha256(transcript).digest()
+
+    # Load Alice's LT private and public keys
+    aliceLTPrivateKey, aliceLTPublicKey = LoadLTKeySelf("Alice")
+
+    # Load Bob's LT public key
+    bobLTPublicKey = LoadLTKeyPeer("Bob")
+
+    # Convert the key back to key object for signing the transcript hash
+    aliceLTPrivateKey = Ed25519PrivateKey.from_private_bytes(aliceLTPrivateKey)
+    signature = aliceLTPrivateKey.sign(transcriptHash)  # Sign the hash using the private key
+
+    
     return 0
 
 if (argLen < 2):
