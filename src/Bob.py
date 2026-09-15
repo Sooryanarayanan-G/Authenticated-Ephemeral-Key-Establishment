@@ -1,6 +1,10 @@
 from transport import accept_peer, send_message, receive_message
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives import serialization
+from cryptography.exceptions import InvalidSignature
+from Load_keys import * 
 
 import json
 import secrets
@@ -33,7 +37,7 @@ def PerformAuthEphHandshake(sock):
     if (len(bytes.fromhex(M1["Alice_SID"])) != 16 or
         len(bytes.fromhex(M1["Alice_Ephemeral_PK"])) != 32): return 1
 
-    print(M1)   # Debug line
+    print("M1 ",  M1)   # Debug line
 
     # Construct M2
     M2 = {
@@ -53,13 +57,56 @@ def PerformAuthEphHandshake(sock):
         BOB_ID.encode() +
         bytes.fromhex(M1["Alice_SID"]) +
         bobSID +
-        bytes.fromhex(M2["Alice_Ephemeral_PK"]) +
+        bytes.fromhex(M1["Alice_Ephemeral_PK"]) +
         bobEphemeralPK
     )
 
     # Hash the transcript
     transcriptHash = hashlib.sha256(transcript).digest()
+
+    # Load Bob's LT private and public keys
+    bobLTPrivateKey, bobLTPublicKey = LoadLTKeySelf("Bob")
+    # Convert the self key back to key object for signing the transcript hash
+    bobLTPrivateKey = Ed25519PrivateKey.from_private_bytes(bobLTPrivateKey)
+    
+    # Load Alice's LT public key
+    aliceLTPublicKey = LoadLTKeyPeer("Alice")
+    # Convert the peer key back to key object for verification
+    aliceLTPublicKey = Ed25519PublicKey.from_public_bytes(aliceLTPublicKey)
+
+    # Receive M3
+    message = receive_message(sock)
+    M3Json = message.decode()
+    M3 = json.loads(M3Json)
+
+    # Necessary checks for M3, verify the signature using alice long term public key
+    aliceSignature = bytes.fromhex(M3["Alice_signature"])
+    if len(aliceSignature) != 64: return 1
+
+    try:
+        aliceLTPublicKey.verify(aliceSignature, transcriptHash)
+    except InvalidSignature:
+        return 1
+
+    print("M3 ", M3)   # Debug line
+
+    # On a successful verification of M3, send M4 to Alice
+    signature = bobLTPrivateKey.sign(transcriptHash)  # Sign the hash using the private key
+
+    # Construct M4
+    M4 = {
+        "Bob_signature": signature.hex()
+    }
+
+    # print(M4)   # Debug line
+
+    M4Json = json.dumps(M4)
+    send_message(sock, M4Json.encode())
+
+    print("LOG: Authenticated Handshake complete")
+
     return 0
+
 
 print(f"Bob: waiting on TCP port {BOB_PORT}...")
 
