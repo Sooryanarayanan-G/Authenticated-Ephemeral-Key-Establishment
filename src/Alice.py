@@ -11,6 +11,7 @@ import json
 import sys
 
 isManInTheMiddle = False
+isAuthEnabled = True
 BOB_PORT = 5000
 MALLORY_PORT = 5005
 PROTOCOL_ID = "CS6530-A2-v1"
@@ -135,30 +136,120 @@ def PerformAuthEphHandshake(sock):
         "Bob_SID": bytes.fromhex(M2["Bob_SID"])
     }
 
+# Performs handshake without ed25519 authentication: TR2
+def PerformEphHandshake(sock):
+    # Ephermeral private and public keys for Alice
+    aliceEphPrivateKey = X25519PrivateKey.generate()
+    aliceEphPublicKey = aliceEphPrivateKey.public_key()
+
+    # Get 32B raw public key for Alice
+    aliceEphemeralPK = aliceEphPublicKey.public_bytes(encoding=serialization.Encoding.Raw,
+                                                        format=serialization.PublicFormat.Raw)
+    if (len(aliceEphemeralPK) != 32): return {}  # Check the length
+
+    # Generate 16B SID for Alice
+    aliceSID = secrets.token_bytes(16)
+
+    # Construct M1
+    M1 = {
+        "Alice_SID": aliceSID.hex(),
+        "Alice_Ephemeral_PK": aliceEphemeralPK.hex()
+    }
+
+    M1Json = json.dumps(M1)
+    send_message(sock, M1Json.encode())     # Send M1
+
+    # Receive M2
+    message = receive_message(sock)
+    M2Json = message.decode()
+    M2 = json.loads(M2Json)
+
+    # Necessary checks for M2, check sizes of each field, Alice SID and PK
+    if (len(bytes.fromhex(M2["Bob_SID"])) != 16 or
+        M2["Alice_SID"] != M1["Alice_SID"] or
+        len(bytes.fromhex(M2["Bob_Ephemeral_PK"])) != 32): return {}
+
+    print("M2 ", M2)   # Debug line
+    pass
+
 if (argLen < 2):
-    print("Usage: python Alice.py <Receiver-IP> [MITM-IP]")
+    print("Usage: python Alice.py <Receiver-IP> [MITM-IP] [--disable-ed-auth]")
     raise SystemExit(1)
 elif (argLen == 2):
     BobIP = sys.argv[1]
 elif (argLen == 3):
     BobIP = sys.argv[1]
+    if (sys.argv[2] == "--disable-ed-auth"):
+        isAuthEnabled = False
+    else:
+        MalloryIP = sys.argv[2]
+        isManInTheMiddle = True
+elif (argLen == 4):
+    BobIP = sys.argv[1]
     MalloryIP = sys.argv[2]
     isManInTheMiddle = True
+    if (sys.argv[3] == "--disable-ed-auth"):
+        isAuthEnabled = False
+    else:
+        raise SystemExit(1)
 else:
-    print("Usage: python Alice.py <Receiver-IP> [MITM-IP]")
+    print("Usage: python Alice.py <Receiver-IP> [MITM-IP] [--disable-ed-auth]")
     raise SystemExit(1)
 
 if (not isManInTheMiddle):
     # sending without MITM
     # SendAndReceiveMessage(BobIP, BOB_PORT)
     sock = ConnectWrapper(BobIP, BOB_PORT)
-    keyDict = PerformAuthEphHandshake(sock)
-    if (CheckKeyDict(keyDict) == False): 
-        print("Authenticated Handshake Failure")
+
+    # Auth is enabled
+    if (isAuthEnabled):
+        print("LOG: ED25519 Authentication is ENABLED")
+        try:
+            keyDict = PerformAuthEphHandshake(sock)
+        except (Exception):
+            keyDict = {}
+        if (CheckKeyDict(keyDict) == False): 
+            print("Authenticated Handshake Failure")
+        else:
+            print("LOG: Established shared secret and derived two directional keys")
+
+    # Auth is disabled
     else:
-        print("LOG: Established shared secret and derived two directional keys")
+        print("LOG: ED25519 Authentication is DISABLED")
+        try:
+            keyDict = PerformEphHandshake(sock)
+        except Exception:
+            keyDict = {}
+        if (keyDict != {}):
+            print("Handshake Complete")
+        else:
+            print("Handshake Failure")
 
 else:
     # sending through MITM
-    SendAndReceiveMessage(MalloryIP, MALLORY_PORT)
-    pass
+    # SendAndReceiveMessage(MalloryIP, MALLORY_PORT)
+    sock = ConnectWrapper(MalloryIP, MALLORY_PORT)
+
+    # Auth is enabled
+    if (isAuthEnabled):
+        print("LOG: ED25519 Authentication is ENABLED with MITM")
+        try:
+            keyDict = PerformAuthEphHandshake(sock)
+        except (Exception):
+            keyDict = {}
+        if (CheckKeyDict(keyDict) == False): 
+            print("Authenticated Handshake Failure")
+        else:
+            print("LOG: Established shared secret and derived two directional keys")
+
+    # Auth is disabled
+    else:
+        print("LOG: ED25519 Authentication is DISABLED with MITM")
+        try:
+            keyDict = PerformEphHandshake(sock)
+        except Exception:
+            keyDict = {}
+        if (keyDict != {}):
+            print("Handshake Complete")
+        else:
+            print("Handshake Failure")

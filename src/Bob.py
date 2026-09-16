@@ -6,10 +6,12 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.exceptions import InvalidSignature
 from Load_keys import * 
 
+import sys
 import json
 import secrets
 import hashlib
 
+isAuthEnabled = True
 BOB_PORT = 5000
 PROTOCOL_ID = "CS6530-A2-v1"
 ALICE_ID = "CS26D400"
@@ -119,6 +121,48 @@ def PerformAuthEphHandshake(sock):
         "Bob_SID": bobSID
     }
 
+def PerformEphHandshake(sock):
+    # Ephermeral private and public keys for Bob
+    bobEphPrivateKey = X25519PrivateKey.generate()
+    bobEphPublicKey = bobEphPrivateKey.public_key()
+
+    # Get 32B raw public key for Bob
+    bobEphemeralPK = bobEphPublicKey.public_bytes(encoding=serialization.Encoding.Raw,
+                                                    format=serialization.PublicFormat.Raw)
+    if (len(bobEphemeralPK) != 32): return {}  # Check the length
+
+    # Generate 16B SID for Bob
+    bobSID = secrets.token_bytes(16)
+
+    # Receive M1
+    message = receive_message(sock)
+    M1Json = message.decode()
+    M1 = json.loads(M1Json)
+
+    # Necessary checks for M1, check sizes of each field
+    if (len(bytes.fromhex(M1["Alice_SID"])) != 16 or
+        len(bytes.fromhex(M1["Alice_Ephemeral_PK"])) != 32): return {}
+
+    print("M1 ",  M1)   # Debug line
+
+    # Construct M2
+    M2 = {
+        "Alice_SID": M1["Alice_SID"],
+        "Bob_SID": bobSID.hex(),
+        "Bob_Ephemeral_PK": bobEphemeralPK.hex()
+    }
+
+    M2Json = json.dumps(M2)
+    send_message(sock, M2Json.encode())     # Send M2
+
+argLen = len(sys.argv)
+if (argLen == 2 ):
+    if (sys.argv[1] == "--disable-ed-auth"):
+        isAuthEnabled = False
+    else:
+        print("Usage: python Bob.py [--disable-ed-auth]")
+        raise SystemExit(1)
+
 
 print(f"Bob: waiting on TCP port {BOB_PORT}...")
 
@@ -126,16 +170,35 @@ sock, peer = accept_peer(BOB_PORT)
 
 print("Bob: connected to ", peer)
 
-keyDict = PerformAuthEphHandshake(sock)
-if (CheckKeyDict(keyDict) == False): 
-    print("Authenticated Handshake Failure")
+# Auth is enabled
+if (isAuthEnabled):
+    print("LOG: ED25519 Authentication is ENABLED")
+    try:
+        keyDict = PerformAuthEphHandshake(sock)
+    except(Exception):
+        keyDict = {}
+    if (CheckKeyDict(keyDict) == False): 
+        print("Authenticated Handshake Failure")
+    else:
+        print("LOG: Established shared secret and derived two directional keys")
+# Auth is disabled
 else:
-    print("LOG: Established shared secret and derived two directional keys")
+    print("LOG: ED25519 Authentication is DISABLED")
+    try:
+        keyDict = PerformEphHandshake(sock)
+    except Exception:
+        keyDict = {}
+    if (keyDict != {}):
+        print("Handshake Complete")
+    else:
+        print("Handshake Failure")
+
+
 # message = receive_message(sock);
 # msgString = message.decode()
 # print("MSG:", msgString)
 
 # send_message(sock, b"Received secret " + msgString[-4:].encode())
-print("LOG: Message sent to ", peer)
+# print("LOG: Message sent to ", peer)
 
 sock.close()
