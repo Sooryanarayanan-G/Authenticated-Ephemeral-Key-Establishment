@@ -14,6 +14,8 @@ PROTOCOL_ID = "CS6530-A2-v1"
 ALICE_ID = "CS26D400"
 BOB_ID = "CS26M016"
 
+# print(len(PROTOCOL_ID.encode()), len(ALICE_ID.encode()), len(BOB_ID.encode()))
+
 def InterceptHandshake(isAuthEnabled, sockAlice, sockBob):
     # Ephermeral private and public keys for Bob-Mallory
     bobMalloryEphPrivateKey = X25519PrivateKey.generate()
@@ -81,8 +83,8 @@ def InterceptHandshake(isAuthEnabled, sockAlice, sockBob):
     # Compute shared secrets
     sharedSecretAliceMallory = ComputeSharedSecret(bobMalloryEphPrivateKey, bytes.fromhex(aliceEphemeralPK))
     sharedSecretBobMallory = ComputeSharedSecret(aliceMalloryEphPrivateKey, bytes.fromhex(bobEphemeralPK))
-    print(sharedSecretAliceMallory) # Debug line
-    print(sharedSecretBobMallory) # Debug line
+    print("Shared Secret with Alice:", sharedSecretAliceMallory) # Debug line
+    print("Shared Secret with Bob:", sharedSecretBobMallory) # Debug line
     return
 
 if len(sys.argv) not in (3, 4):

@@ -39,7 +39,7 @@ def PerformEphHandshake(sock, isAuthEnabled):
     if (len(bytes.fromhex(M1["Alice_SID"])) != 16 or
         len(bytes.fromhex(M1["Alice_Ephemeral_PK"])) != 32): return {}
 
-    print("M1 ",  M1)   # Debug line
+    print("\nM1 ",  M1, "\n")   # Debug line
 
     # Construct M2
     M2 = {
@@ -91,7 +91,7 @@ def PerformEphHandshake(sock, isAuthEnabled):
         except InvalidSignature:
             return {}
 
-        print("M3 ", M3)   # Debug line
+        print("\nM3 ",  M3, "\n")   # Debug line
 
         # On a successful verification of M3, send M4 to Alice
         signature = bobLTPrivateKey.sign(transcriptHash)  # Sign the hash using the private key
@@ -111,7 +111,7 @@ def PerformEphHandshake(sock, isAuthEnabled):
         print("LOG: Handshake complete")
 
     sharedSecret = ComputeSharedSecret(bobEphPrivateKey, bytes.fromhex(M1["Alice_Ephemeral_PK"]))
-    print(sharedSecret) # Debug line
+    print("Shared Secret: ", sharedSecret) # Debug line
 
     #  derive K_Alice_to_Bob and K_Bob_to_Alice using HKDF-SHA-256 with Transcript_Hash as salt and the specified info strings.
     kAliceToBob, kBobToAlice = DeriveTwoDirectionalTrafficKeys(ikm=sharedSecret, salt=transcriptHash)
