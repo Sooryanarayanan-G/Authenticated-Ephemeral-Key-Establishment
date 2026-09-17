@@ -33,7 +33,7 @@ def ConnectWrapper(ip, port):
     sock = connect_to_peer(ip, port)
     return sock
 
-def PerformAuthEphHandshake(sock):
+def PerformEphHandshake(sock, isAuthEnabled):
     # Ephermeral private and public keys for Alice
     aliceEphPrivateKey = X25519PrivateKey.generate()
     aliceEphPublicKey = aliceEphPrivateKey.public_key()
@@ -82,45 +82,49 @@ def PerformAuthEphHandshake(sock):
     # Hash the transcript
     transcriptHash = hashlib.sha256(transcript).digest()
 
-    # Load Alice's LT private and public keys
-    aliceLTPrivateKey, aliceLTPublicKey = LoadLTKeySelf("Alice")
-    # Convert the self key back to key object for signing the transcript hash
-    aliceLTPrivateKey = Ed25519PrivateKey.from_private_bytes(aliceLTPrivateKey)
+    if (isAuthEnabled):
+        # Load Alice's LT private and public keys
+        aliceLTPrivateKey, aliceLTPublicKey = LoadLTKeySelf("Alice")
+        # Convert the self key back to key object for signing the transcript hash
+        aliceLTPrivateKey = Ed25519PrivateKey.from_private_bytes(aliceLTPrivateKey)
 
-    # Load Bob's LT public key
-    bobLTPublicKey = LoadLTKeyPeer("Bob")
-    # Convert the peer key back to key object for verification
-    bobLTPublicKey = Ed25519PublicKey.from_public_bytes(bobLTPublicKey)
+        # Load Bob's LT public key
+        bobLTPublicKey = LoadLTKeyPeer("Bob")
+        # Convert the peer key back to key object for verification
+        bobLTPublicKey = Ed25519PublicKey.from_public_bytes(bobLTPublicKey)
 
-    signature = aliceLTPrivateKey.sign(transcriptHash)  # Sign the hash using the private key
+        signature = aliceLTPrivateKey.sign(transcriptHash)  # Sign the hash using the private key
 
-    # Construct M3
-    M3 = {
-        "Alice_signature": signature.hex()
-    }
+        # Construct M3
+        M3 = {
+            "Alice_signature": signature.hex()
+        }
 
-    # print(M3)   # Debug line
+        # print(M3)   # Debug line
 
-    M3Json = json.dumps(M3)
-    send_message(sock, M3Json.encode())
+        M3Json = json.dumps(M3)
+        send_message(sock, M3Json.encode())
 
-    # Receive M4
-    message = receive_message(sock)
-    M4Json = message.decode()
-    M4 = json.loads(M4Json)
+        # Receive M4
+        message = receive_message(sock)
+        M4Json = message.decode()
+        M4 = json.loads(M4Json)
 
-    # Necessary checks for M4, verify the signature using bob long term public key
-    bobSignature = bytes.fromhex(M4["Bob_signature"])
-    if len(bobSignature) != 64: return {}
+        # Necessary checks for M4, verify the signature using bob long term public key
+        bobSignature = bytes.fromhex(M4["Bob_signature"])
+        if len(bobSignature) != 64: return {}
 
-    try:
-        bobLTPublicKey.verify(bobSignature, transcriptHash)
-    except InvalidSignature:
-        return {}
+        try:
+            bobLTPublicKey.verify(bobSignature, transcriptHash)
+        except InvalidSignature:
+            return {}
 
-    print("M4 ", M4)   # Debug line
+        print("M4 ", M4)   # Debug line
 
-    print("LOG: Authenticated Handshake complete")
+        print("LOG: Authenticated Handshake complete")
+
+    else:
+        print("LOG: Handshake complete")
 
     sharedSecret = ComputeSharedSecret(aliceEphPrivateKey, bytes.fromhex(M2["Bob_Ephemeral_PK"]))
     print(sharedSecret) # Debug line
@@ -135,42 +139,6 @@ def PerformAuthEphHandshake(sock):
         "Alice_SID": aliceSID,
         "Bob_SID": bytes.fromhex(M2["Bob_SID"])
     }
-
-# Performs handshake without ed25519 authentication: TR2
-def PerformEphHandshake(sock):
-    # Ephermeral private and public keys for Alice
-    aliceEphPrivateKey = X25519PrivateKey.generate()
-    aliceEphPublicKey = aliceEphPrivateKey.public_key()
-
-    # Get 32B raw public key for Alice
-    aliceEphemeralPK = aliceEphPublicKey.public_bytes(encoding=serialization.Encoding.Raw,
-                                                        format=serialization.PublicFormat.Raw)
-    if (len(aliceEphemeralPK) != 32): return {}  # Check the length
-
-    # Generate 16B SID for Alice
-    aliceSID = secrets.token_bytes(16)
-
-    # Construct M1
-    M1 = {
-        "Alice_SID": aliceSID.hex(),
-        "Alice_Ephemeral_PK": aliceEphemeralPK.hex()
-    }
-
-    M1Json = json.dumps(M1)
-    send_message(sock, M1Json.encode())     # Send M1
-
-    # Receive M2
-    message = receive_message(sock)
-    M2Json = message.decode()
-    M2 = json.loads(M2Json)
-
-    # Necessary checks for M2, check sizes of each field, Alice SID and PK
-    if (len(bytes.fromhex(M2["Bob_SID"])) != 16 or
-        M2["Alice_SID"] != M1["Alice_SID"] or
-        len(bytes.fromhex(M2["Bob_Ephemeral_PK"])) != 32): return {}
-
-    print("M2 ", M2)   # Debug line
-    pass
 
 if (argLen < 2):
     print("Usage: python Alice.py <Receiver-IP> [MITM-IP] [--disable-ed-auth]")
@@ -205,8 +173,9 @@ if (not isManInTheMiddle):
     if (isAuthEnabled):
         print("LOG: ED25519 Authentication is ENABLED")
         try:
-            keyDict = PerformAuthEphHandshake(sock)
-        except (Exception):
+            keyDict = PerformEphHandshake(sock, isAuthEnabled)
+        except Exception as e:
+            print(e)
             keyDict = {}
         if (CheckKeyDict(keyDict) == False): 
             print("Authenticated Handshake Failure")
@@ -217,7 +186,7 @@ if (not isManInTheMiddle):
     else:
         print("LOG: ED25519 Authentication is DISABLED")
         try:
-            keyDict = PerformEphHandshake(sock)
+            keyDict = PerformEphHandshake(sock, isAuthEnabled)
         except Exception:
             keyDict = {}
         if (keyDict != {}):
@@ -234,7 +203,7 @@ else:
     if (isAuthEnabled):
         print("LOG: ED25519 Authentication is ENABLED with MITM")
         try:
-            keyDict = PerformAuthEphHandshake(sock)
+            keyDict = PerformEphHandshake(sock, isAuthEnabled)
         except (Exception):
             keyDict = {}
         if (CheckKeyDict(keyDict) == False): 
@@ -246,7 +215,7 @@ else:
     else:
         print("LOG: ED25519 Authentication is DISABLED with MITM")
         try:
-            keyDict = PerformEphHandshake(sock)
+            keyDict = PerformEphHandshake(sock, isAuthEnabled)
         except Exception:
             keyDict = {}
         if (keyDict != {}):
