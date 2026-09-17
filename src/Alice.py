@@ -133,6 +133,19 @@ def PerformEphHandshake(sock, isAuthEnabled):
     #  derive K_Alice_to_Bob and K_Bob_to_Alice using HKDF-SHA-256 with Transcript_Hash as salt and the specified info strings.
     kAliceToBob, kBobToAlice = DeriveTwoDirectionalTrafficKeys(ikm=sharedSecret, salt=transcriptHash)
 
+    # Record session data for forward secrecy experiment
+    aliceEphPrivateKeyRaw = aliceEphPrivateKey.private_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PrivateFormat.Raw,
+        encryption_algorithm=serialization.NoEncryption()
+    )
+    RecordSessionData(str(aliceEphemeralPK.hex()), "w")
+    RecordSessionData(str(aliceEphPrivateKeyRaw.hex()))
+    RecordSessionData(str(M1))
+    RecordSessionData(str(M2))
+    RecordSessionData(str(M3))
+    RecordSessionData(str(M4))
+    
     # Return all the data needed for later part of the project, which involves AES
     return {
         "K_Alice_to_Bob": kAliceToBob,

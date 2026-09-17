@@ -7,6 +7,7 @@ from pathlib import Path
 # Get the current directory as reference
 BASE_DIR = Path(__file__).resolve().parent
 KEYS_DIR = (BASE_DIR / ".." / "keys").resolve()
+RECORDED_SESSION = (BASE_DIR / ".." / "record" / "recorded_session.txt").resolve()
 
 # Two direction traffic key info
 ALICE_TO_BOB_INFO = "CS6530-A2 Alice->Bob"
@@ -50,3 +51,12 @@ def CheckKeyDict(KeyDict):
     if set(KeyDict.keys()) == { "K_Alice_to_Bob", "K_Bob_to_Alice", "Alice_SID", "Bob_SID"}:
         return True
     return False 
+
+def ReadRecordedSessionData():
+    with open(RECORDED_SESSION, "r") as f:
+        record = f.read()
+    return record
+
+def RecordSessionData(data, mode="a"):
+    with open(RECORDED_SESSION, mode) as f:
+        f.writelines(data + "\n")
