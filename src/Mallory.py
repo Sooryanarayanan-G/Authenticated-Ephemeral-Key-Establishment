@@ -1,13 +1,18 @@
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
 from cryptography.hazmat.primitives import serialization
+from Load_keys import * 
 
 from transport import accept_peer, send_message, receive_message, connect_to_peer
 import sys
 import json
+import hashlib
 
 isAuthEnabled = True
 MALLORY_PORT = 5005
 BOB_PORT = 5000
+PROTOCOL_ID = "CS6530-A2-v1"
+ALICE_ID = "CS26D400"
+BOB_ID = "CS26M016"
 
 def InterceptHandshake(isAuthEnabled, sockAlice, sockBob):
     # Ephermeral private and public keys for Bob-Mallory
@@ -28,6 +33,7 @@ def InterceptHandshake(isAuthEnabled, sockAlice, sockBob):
 
     M1Json = message.decode()
     M1 = json.loads(M1Json)
+    aliceEphemeralPK = M1["Alice_Ephemeral_PK"]
     M1["Alice_Ephemeral_PK"] = aliceMalloryEphemeralPK.hex()
     M1Json = json.dumps(M1)
     send_message(sockBob, M1Json.encode())     # Send M1
@@ -39,6 +45,7 @@ def InterceptHandshake(isAuthEnabled, sockAlice, sockBob):
 
     M2Json = message.decode()
     M2 = json.loads(M2Json)
+    bobEphemeralPK = M2["Bob_Ephemeral_PK"]
     M2["Bob_Ephemeral_PK"] = bobMalloryEphemeralPK.hex()
     M2Json = json.dumps(M2)
     send_message(sockAlice, M2Json.encode())     # Send M2
@@ -57,6 +64,25 @@ def InterceptHandshake(isAuthEnabled, sockAlice, sockBob):
         send_message(sockAlice, M4)
         print("LOG: M4 send")
 
+    # Construct transcript
+    # Transcript = Protocol_ID || Alice_ID || Bob_ID || Alice_SID || Bob_SID || Alice_Ephemeral_PK || Bob_Ephemeral_PK 
+    transcript = (
+        PROTOCOL_ID.encode() + 
+        ALICE_ID.encode() + 
+        BOB_ID.encode() +
+        bytes.fromhex(M1["Alice_SID"]) +
+        bytes.fromhex(M2["Bob_SID"]) +
+        aliceMalloryEphemeralPK +
+        bobMalloryEphemeralPK
+    )
+
+    # Hash the transcript
+    transcriptHash = hashlib.sha256(transcript).digest()
+    # Compute shared secrets
+    sharedSecretAliceMallory = ComputeSharedSecret(bobMalloryEphPrivateKey, bytes.fromhex(aliceEphemeralPK))
+    sharedSecretBobMallory = ComputeSharedSecret(aliceMalloryEphPrivateKey, bytes.fromhex(bobEphemeralPK))
+    print(sharedSecretAliceMallory) # Debug line
+    print(sharedSecretBobMallory) # Debug line
     return
 
 if len(sys.argv) not in (3, 4):
