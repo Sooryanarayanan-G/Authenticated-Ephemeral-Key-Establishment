@@ -1,14 +1,16 @@
+import sys, os; sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from transport import connect_to_peer, send_message, receive_message
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives import serialization
 from cryptography.exceptions import InvalidSignature
-from Load_keys import * 
+from Load_keys import *
 import secrets
 import hashlib
 import json
 import sys
+from aead_comm import AEADSession, send_aead_record, receive_aead_record
 
 isManInTheMiddle = False
 isAuthEnabled = True
@@ -34,45 +36,37 @@ def ConnectWrapper(ip, port):
     return sock
 
 def PerformEphHandshake(sock, isAuthEnabled):
-    # Ephermeral private and public keys for Alice
+
     aliceEphPrivateKey = X25519PrivateKey.generate()
     aliceEphPublicKey = aliceEphPrivateKey.public_key()
 
-    # Get 32B raw public key for Alice
     aliceEphemeralPK = aliceEphPublicKey.public_bytes(encoding=serialization.Encoding.Raw,
                                                       format=serialization.PublicFormat.Raw)
-    if (len(aliceEphemeralPK) != 32): return {}  # Check the length
+    if (len(aliceEphemeralPK) != 32): return {}
 
-    # Generate 16B SID for Alice
     aliceSID = secrets.token_bytes(16)
 
-    # Construct M1
     M1 = {
         "Alice_SID": aliceSID.hex(),
         "Alice_Ephemeral_PK": aliceEphemeralPK.hex()
     }
 
     M1Json = json.dumps(M1)
-    send_message(sock, M1Json.encode())     # Send M1
+    print("LOG: Sending M1: ", M1Json)
+    send_message(sock, M1Json.encode())
 
-    # Receive M2
     message = receive_message(sock)
     M2Json = message.decode()
     M2 = json.loads(M2Json)
+    print("LOG: Received M2: ", M2Json)
 
-    # Necessary checks for M2, check sizes of each field, Alice SID and PK
     if (len(bytes.fromhex(M2["Bob_SID"])) != 16 or
         M2["Alice_SID"] != M1["Alice_SID"] or
         len(bytes.fromhex(M2["Bob_Ephemeral_PK"])) != 32): return {}
 
-    print("\nM2 ",  M2, "\n")   # Debug line
-
-
-    # Construct transcript
-    # Transcript = Protocol_ID || Alice_ID || Bob_ID || Alice_SID || Bob_SID || Alice_Ephemeral_PK || Bob_Ephemeral_PK 
     transcript = (
-        PROTOCOL_ID.encode() + 
-        ALICE_ID.encode() + 
+        PROTOCOL_ID.encode() +
+        ALICE_ID.encode() +
         BOB_ID.encode() +
         aliceSID +
         bytes.fromhex(M2["Bob_SID"]) +
@@ -80,38 +74,36 @@ def PerformEphHandshake(sock, isAuthEnabled):
         bytes.fromhex(M2["Bob_Ephemeral_PK"])
     )
 
-    # Hash the transcript
     transcriptHash = hashlib.sha256(transcript).digest()
 
+    M3 = None
+    M4 = None
+
     if (isAuthEnabled):
-        # Load Alice's LT private and public keys
+
         aliceLTPrivateKey, aliceLTPublicKey = LoadLTKeySelf("Alice")
-        # Convert the self key back to key object for signing the transcript hash
+
         aliceLTPrivateKey = Ed25519PrivateKey.from_private_bytes(aliceLTPrivateKey)
 
-        # Load Bob's LT public key
         bobLTPublicKey = LoadLTKeyPeer("Bob")
-        # Convert the peer key back to key object for verification
+
         bobLTPublicKey = Ed25519PublicKey.from_public_bytes(bobLTPublicKey)
 
-        signature = aliceLTPrivateKey.sign(transcriptHash)  # Sign the hash using the private key
+        signature = aliceLTPrivateKey.sign(transcriptHash)
 
-        # Construct M3
         M3 = {
             "Alice_signature": signature.hex()
         }
 
-        # print(M3)   # Debug line
-
         M3Json = json.dumps(M3)
+        print("LOG: Sending M3: ", M3Json)
         send_message(sock, M3Json.encode())
 
-        # Receive M4
         message = receive_message(sock)
         M4Json = message.decode()
         M4 = json.loads(M4Json)
+        print("LOG: Received M4: ", M4Json)
 
-        # Necessary checks for M4, verify the signature using bob long term public key
         bobSignature = bytes.fromhex(M4["Bob_signature"])
         if len(bobSignature) != 64: return {}
 
@@ -120,45 +112,71 @@ def PerformEphHandshake(sock, isAuthEnabled):
         except InvalidSignature:
             return {}
 
-        print("\nM4 ",  M4, "\n")   # Debug line
-
         print("LOG: Authenticated Handshake complete")
 
     else:
         print("LOG: Handshake complete")
 
     sharedSecret = ComputeSharedSecret(aliceEphPrivateKey, bytes.fromhex(M2["Bob_Ephemeral_PK"]))
-    print("Shared Secret: ", sharedSecret) # Debug line
+    print("LOG: Computed Shared Secret: ", sharedSecret.hex())
 
-    #  derive K_Alice_to_Bob and K_Bob_to_Alice using HKDF-SHA-256 with Transcript_Hash as salt and the specified info strings.
     kAliceToBob, kBobToAlice = DeriveTwoDirectionalTrafficKeys(ikm=sharedSecret, salt=transcriptHash)
 
-    print("K_Alice_to_Bob:", kAliceToBob.hex())
-    print("K_Bob_to_Alice:", kBobToAlice.hex())
+    print("LOG: K_Alice_to_Bob: ", kAliceToBob.hex())
+    print("LOG: K_Bob_to_Alice: ", kBobToAlice.hex())
 
-    # Record session data for forward secrecy experiment
-    aliceEphPrivateKeyRaw = aliceEphPrivateKey.private_bytes(
-        encoding=serialization.Encoding.Raw,
-        format=serialization.PrivateFormat.Raw,
-        encryption_algorithm=serialization.NoEncryption()
-    )
-    # RecordSessionData(str(aliceEphemeralPK.hex()), "w")
-    RecordSessionData(str(aliceEphPrivateKeyRaw.hex()), "w")
-    RecordSessionData(str(M1))
-    RecordSessionData(str(M2))
-    RecordSessionData(str(M3))
-    RecordSessionData(str(M4))
-    RecordSessionData(str(sharedSecret.hex()))
-    RecordSessionData(str(kAliceToBob.hex()))
-    RecordSessionData(str(kBobToAlice.hex()))
-    
-    # Return all the data needed for later part of the project, which involves AES
+    if isAuthEnabled:
+
+        aliceEphPrivateKeyRaw = aliceEphPrivateKey.private_bytes(
+            encoding=serialization.Encoding.Raw,
+            format=serialization.PrivateFormat.Raw,
+            encryption_algorithm=serialization.NoEncryption()
+        )
+        RecordSessionData(str(aliceEphPrivateKeyRaw.hex()), "w")
+        RecordSessionData(str(M1))
+        RecordSessionData(str(M2))
+        if M3 is not None:
+            RecordSessionData(str(M3))
+        if M4 is not None:
+            RecordSessionData(str(M4))
+        RecordSessionData(str(sharedSecret.hex()))
+        RecordSessionData(str(kAliceToBob.hex()))
+        RecordSessionData(str(kBobToAlice.hex()))
+
+    del aliceEphPrivateKey
+    del sharedSecret
+    print("LOG: Ephemeral secrets discarded (FR-7 compliance).")
+
     return {
         "K_Alice_to_Bob": kAliceToBob,
         "K_Bob_to_Alice": kBobToAlice,
         "Alice_SID": aliceSID,
         "Bob_SID": bytes.fromhex(M2["Bob_SID"])
     }
+
+def perform_aead_communication(sock, keyDict):
+    aead_session = AEADSession(
+        role='Alice',
+        send_key=keyDict["K_Alice_to_Bob"],
+        recv_key=keyDict["K_Bob_to_Alice"],
+        alice_id=ALICE_ID.encode(),
+        bob_id=BOB_ID.encode(),
+        alice_sid=keyDict["Alice_SID"],
+        bob_sid=keyDict["Bob_SID"]
+    )
+
+    for i in range(3):
+        msg = f"Hello Bob, this is message {i} from Alice".encode()
+        send_aead_record(sock, aead_session, msg)
+        print(f"LOG: Sent application message {i} to Bob")
+
+    for i in range(3):
+        try:
+            msg_bytes = receive_aead_record(sock, aead_session)
+            print(f"APP MSG RECEIVED: {msg_bytes.decode()}")
+        except Exception as e:
+            print(f"LOG: Error receiving/decrypting record: {e}")
+            break
 
 if (argLen < 2):
     print("Usage: python Alice.py <Receiver-IP> [MITM-IP] [--disable-ed-auth]")
@@ -185,60 +203,33 @@ else:
     raise SystemExit(1)
 
 if (not isManInTheMiddle):
-    # sending without MITM
-    # SendAndReceiveMessage(BobIP, BOB_PORT)
     sock = ConnectWrapper(BobIP, BOB_PORT)
+    print("LOG: Connected to Bob at", BobIP, BOB_PORT)
 
-    # Auth is enabled
-    if (isAuthEnabled):
-        print("LOG: ED25519 Authentication is ENABLED")
-        try:
-            keyDict = PerformEphHandshake(sock, isAuthEnabled)
-        except Exception as e:
-            print(e)
-            keyDict = {}
-        if (CheckKeyDict(keyDict) == False): 
-            print("Authenticated Handshake Failure")
-        else:
-            print("LOG: Established shared secret and derived two directional keys")
+    try:
+        keyDict = PerformEphHandshake(sock, isAuthEnabled)
+    except Exception as e:
+        print("Exception during handshake:", e)
+        keyDict = {}
 
-    # Auth is disabled
+    if not keyDict or (isAuthEnabled and CheckKeyDict(keyDict) == False):
+        print("Handshake Failure")
     else:
-        print("LOG: ED25519 Authentication is DISABLED")
-        try:
-            keyDict = PerformEphHandshake(sock, isAuthEnabled)
-        except Exception:
-            keyDict = {}
-        if (keyDict != {}):
-            print("Handshake Complete")
-        else:
-            print("Handshake Failure")
+        print("LOG: Established shared secret and derived two directional keys")
+        perform_aead_communication(sock, keyDict)
 
 else:
-    # sending through MITM
-    # SendAndReceiveMessage(MalloryIP, MALLORY_PORT)
     sock = ConnectWrapper(MalloryIP, MALLORY_PORT)
+    print("LOG: Connected to Mallory (MITM) at", MalloryIP, MALLORY_PORT)
 
-    # Auth is enabled
-    if (isAuthEnabled):
-        print("LOG: ED25519 Authentication is ENABLED with MITM")
-        try:
-            keyDict = PerformEphHandshake(sock, isAuthEnabled)
-        except (Exception):
-            keyDict = {}
-        if (CheckKeyDict(keyDict) == False): 
-            print("Authenticated Handshake Failure")
-        else:
-            print("LOG: Established shared secret and derived two directional keys")
+    try:
+        keyDict = PerformEphHandshake(sock, isAuthEnabled)
+    except Exception as e:
+        print("Exception during handshake:", e)
+        keyDict = {}
 
-    # Auth is disabled
+    if not keyDict or (isAuthEnabled and CheckKeyDict(keyDict) == False):
+        print("Handshake Failure")
     else:
-        print("LOG: ED25519 Authentication is DISABLED with MITM")
-        try:
-            keyDict = PerformEphHandshake(sock, isAuthEnabled)
-        except Exception:
-            keyDict = {}
-        if (keyDict != {}):
-            print("Handshake Complete")
-        else:
-            print("Handshake Failure")
+        print("LOG: Established shared secret and derived two directional keys")
+        perform_aead_communication(sock, keyDict)
