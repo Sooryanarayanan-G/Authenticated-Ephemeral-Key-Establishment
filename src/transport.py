@@ -1,23 +1,7 @@
-# transport.py
-#
-# CS6530 Assignment 2
-# 
-# Minimal TCP transport helper
-#
-# IMPORTANT:
-# This helper provides transport only.
-# It provides NO confidentiality, authentication,
-# integrity protection, or replay protection.
-#
-#
-# Wire format:
-#     2-byte unsigned big-endian length || message bytes
-
 import socket
 import struct
 
 MAX_MESSAGE_SIZE = 65535
-
 
 def _recv_exact(sock, n):
     """Receive exactly n bytes from a connected socket."""
@@ -33,7 +17,6 @@ def _recv_exact(sock, n):
 
     return bytes(data)
 
-
 def connect_to_peer(peer_ip, peer_port):
     """
     Connect to the peer and return a connected TCP socket.
@@ -42,7 +25,6 @@ def connect_to_peer(peer_ip, peer_port):
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.connect((peer_ip, peer_port))
     return sock
-
 
 def accept_peer(listen_port, bind_ip="0.0.0.0"):
     """
@@ -60,11 +42,9 @@ def accept_peer(listen_port, bind_ip="0.0.0.0"):
 
     conn, addr = server.accept()
 
-    # Listening socket is no longer needed for this simple assignment.
     server.close()
 
     return conn, addr
-
 
 def send_message(sock, data):
     """
@@ -86,7 +66,6 @@ def send_message(sock, data):
 
     header = struct.pack("!H", len(data))
     sock.sendall(header + data)
-
 
 def receive_message(sock):
     """

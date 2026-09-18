@@ -8,7 +8,6 @@ if (len(sys.argv) != 2):
     print("Usage: <python-exe> Generate_Key.py <folder_path>")
     raise SystemExit(1)
 
-# Should be any existing folder
 folder = sys.argv[1]
 
 privateKey = Ed25519PrivateKey.generate()
